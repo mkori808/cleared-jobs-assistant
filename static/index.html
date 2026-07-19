@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clearance Job Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css?v=7">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">&#9633;</span>
+    <div class="brand-text">
+      <h1>Clearance Job Tracker</h1>
+      <p class="subtitle">Auto-refreshed every 72 hours across <span id="company-count">—</span> companies</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <div class="status-line" id="status-line">checking last refresh…</div>
+    <button id="applied-tab-btn" class="btn-secondary">Applied</button>
+    <button id="resume-toggle-btn" class="btn-secondary">Resume matching</button>
+    <button id="reparse-toggle-btn" class="btn-secondary">Re-parse with AI</button>
+    <button id="refresh-btn" class="btn-primary">Refresh now</button>
+  </div>
+</header>
+
+<main>
+  <section class="resume-panel" id="resume-panel" hidden>
+    <h2>Resume match scoring</h2>
+    <p>Paste your resume below and save it, then use "Score jobs vs resume" to grade every
+      active posting A (excellent fit) through F (poor fit) against it. Saving a new resume
+      clears existing grades so everything gets re-scored.</p>
+    <textarea id="resume-text" rows="10" placeholder="Paste your resume text here…"></textarea>
+    <div class="resume-actions">
+      <button id="save-resume-btn" class="btn-secondary">Save resume</button>
+      <button id="score-jobs-btn" class="btn-primary">Score jobs vs resume</button>
+      <label class="checkbox-label">
+        <input type="checkbox" id="score-filtered-only-check">
+        Only score jobs matching current filters (clearance, location, company, etc.)
+      </label>
+      <span id="resume-status-line" class="status-line"></span>
+    </div>
+  </section>
+
+  <section class="resume-panel" id="reparse-panel" hidden>
+    <h2>Re-parse with AI</h2>
+    <p>New job postings are already parsed with the LLM automatically as they come in during
+      refresh (clearance, salary, location, equity). Use this to re-check postings already in
+      the database -- it re-derives every listed field from scratch and overwrites what's
+      there now, which is the only way to fix a wrong value (a wrong field looks the same as a
+      right one until it's re-checked). Structured salary data the ATS gave us directly is
+      left alone. This can process a lot of jobs at once -- scope it down if you just want to
+      fix what's currently on screen.</p>
+    <div class="resume-actions">
+      <button id="reparse-jobs-btn" class="btn-primary">Re-parse jobs with AI</button>
+      <label class="checkbox-label">
+        <input type="checkbox" id="reparse-filtered-only-check">
+        Only re-parse jobs matching current filters (clearance, location, company, etc.)
+      </label>
+      <span id="reparse-status-line" class="status-line"></span>
+    </div>
+  </section>
+
+  <section class="filters-panel">
+    <div class="filters-row">
+      <input type="text" id="search-input" placeholder="Search title or company…" class="control search-box">
+      <select id="company-filter" class="control">
+        <option value="">All companies</option>
+      </select>
+      <select id="clearance-filter" class="control">
+        <option value="">Any clearance</option>
+        <option value="clearance_only">Clearance mentioned</option>
+        <optgroup label="Specific clearance">
+          <option value="level:TS/SCI + Polygraph">TS/SCI + Polygraph</option>
+          <option value="level:TS/SCI">TS/SCI</option>
+          <option value="level:Top Secret">Top Secret</option>
+          <option value="level:Q Clearance">Q Clearance (DOE)</option>
+          <option value="level:Secret">Secret</option>
+          <option value="level:L Clearance">L Clearance (DOE)</option>
+          <option value="level:Public Trust">Public Trust</option>
+          <option value="level:Confidential">Confidential</option>
+          <option value="level:Interim Clearance">Interim Clearance</option>
+          <option value="level:Clearance eligible / clearable">Clearance eligible</option>
+          <option value="level:Security Clearance (unspecified)">Security Clearance</option>
+          <option value="level:None mentioned">None mentioned</option>
+        </optgroup>
+      </select>
+      <div class="salary-range control">
+        <input type="number" id="salary-min-input" placeholder="Min $" class="salary-input">
+        <span class="salary-dash">–</span>
+        <input type="number" id="salary-max-input" placeholder="Max $" class="salary-input">
+      </div>
+      <div class="custom-multiselect">
+        <button class="multiselect-toggle control" data-filter="grade">Match grade <span class="multiselect-count"></span></button>
+        <div class="multiselect-dropdown" id="grade-dropdown">
+          <div class="multiselect-options" id="grade-options"></div>
+        </div>
+      </div>
+      <select id="grade-filter" multiple style="display: none;">
+        <option value="A">A</option>
+        <option value="B">B</option>
+        <option value="C">C</option>
+        <option value="D">D</option>
+        <option value="F">F</option>
+      </select>
+      <label class="toggle-chip">
+        <input type="checkbox" id="remote-only-check">
+        <span>Remote</span>
+      </label>
+      <label class="toggle-chip">
+        <input type="checkbox" id="equity-only-check">
+        <span>Equity</span>
+      </label>
+    </div>
+    <div class="filters-row">
+      <div class="location-group">
+        <label class="filter-label">Location:</label>
+        <div class="location-dropdowns">
+          <div class="custom-multiselect">
+            <button class="multiselect-toggle control" data-filter="city">City <span class="multiselect-count"></span></button>
+            <div class="multiselect-dropdown" id="city-dropdown">
+              <div class="multiselect-search"><input type="text" placeholder="Search cities…" class="multiselect-search-input"></div>
+              <div class="multiselect-options" id="city-options"></div>
+            </div>
+          </div>
+          <div class="custom-multiselect">
+            <button class="multiselect-toggle control" data-filter="state">State <span class="multiselect-count"></span></button>
+            <div class="multiselect-dropdown" id="state-dropdown">
+              <div class="multiselect-search"><input type="text" placeholder="Search states…" class="multiselect-search-input"></div>
+              <div class="multiselect-options" id="state-options"></div>
+            </div>
+          </div>
+          <div class="custom-multiselect">
+            <button class="multiselect-toggle control" data-filter="country">Country <span class="multiselect-count"></span></button>
+            <div class="multiselect-dropdown" id="country-dropdown">
+              <div class="multiselect-search"><input type="text" placeholder="Search countries…" class="multiselect-search-input"></div>
+              <div class="multiselect-options" id="country-options"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <label class="toggle-chip" title="Also include every remote job, regardless of its own city/state/country">
+        <input type="checkbox" id="include-remote-check">
+        <span>+ Remote jobs</span>
+      </label>
+      <button type="button" id="clear-location-btn" class="btn-link">Clear location</button>
+    </div>
+    <select id="city-filter" multiple style="display: none;"></select>
+    <select id="state-filter" multiple style="display: none;"></select>
+    <select id="country-filter" multiple style="display: none;"></select>
+  </section>
+
+  <section class="summary-strip" id="summary-strip"></section>
+
+  <section class="results" id="main-view">
+    <div class="table-actions">
+      <label class="checkbox-label">
+        <input type="checkbox" id="select-all-check">
+        Select all
+      </label>
+      <button id="mark-applied-btn" class="btn-secondary" disabled>Mark selected as applied</button>
+      <span id="selection-count" class="selection-info"></span>
+    </div>
+    <table id="jobs-table">
+      <thead>
+        <tr>
+          <th style="width: 30px;"><input type="checkbox" id="table-select-all-check"></th>
+          <th class="sortable" data-sort="company">Company</th>
+          <th class="sortable" data-sort="title">Title</th>
+          <th class="sortable" data-sort="city">City</th>
+          <th class="sortable" data-sort="state">State</th>
+          <th class="sortable" data-sort="country">Country</th>
+          <th class="sortable" data-sort="salary_max">Salary</th>
+          <th class="sortable" data-sort="equity">Equity</th>
+          <th class="sortable" data-sort="clearance_level">Clearance</th>
+          <th class="sortable" data-sort="signals">Signals</th>
+          <th class="sortable" data-sort="resume_match_grade">Match</th>
+          <th class="sortable" data-sort="first_seen">First seen</th>
+        </tr>
+      </thead>
+      <tbody id="jobs-body">
+        <tr><td colspan="12" class="empty-state">Loading…</td></tr>
+      </tbody>
+    </table>
+    <div class="pagination-bar" id="pagination-bar">
+      <span class="pagination-info" id="pagination-info"></span>
+      <div class="pagination-controls">
+        <button id="pagination-prev" class="btn-secondary" disabled>← Prev</button>
+        <span class="pagination-page" id="pagination-page"></span>
+        <button id="pagination-next" class="btn-secondary" disabled>Next →</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="results" id="applied-view" hidden>
+    <div style="padding: 12px 14px; border-bottom: 1px solid var(--panel-border); background: #191d20;">
+      <button id="back-to-main-btn" class="btn-link">← Back to all jobs</button>
+    </div>
+    <h2 style="margin: 16px 14px 0; font-size: 16px;">Applied Jobs</h2>
+    <table id="applied-table">
+      <thead>
+        <tr>
+          <th>Company</th>
+          <th>Title</th>
+          <th>City</th>
+          <th>State</th>
+          <th>Country</th>
+          <th>Salary</th>
+          <th>Clearance</th>
+          <th>Status</th>
+          <th>Notes</th>
+          <th>Applied</th>
+        </tr>
+      </thead>
+      <tbody id="applied-body">
+        <tr><td colspan="10" class="empty-state">Loading…</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="unresolved-panel" id="candidates-panel">
+    <h2>Suggested companies to track</h2>
+    <p>Employers found in federal contract award data (USAspending.gov, professional-services
+      and R&amp;D contracts) that aren't in <code>config/companies.json</code> yet. Adding one
+      appends it to the config so the next refresh scrapes it. Dollar figures are obligated
+      contract value over ~2 years — a rough proxy for company size, <em>not</em> for how many
+      cleared roles they post.</p>
+    <div class="resume-actions">
+      <button id="discover-companies-btn" class="btn-secondary">Find new companies</button>
+      <span id="discover-status-line" class="status-line"></span>
+    </div>
+    <div id="candidates-list" class="chip-list"></div>
+  </section>
+
+  <section class="unresolved-panel" id="unresolved-panel" hidden>
+    <h2>Companies needing manual setup</h2>
+    <p>These didn't auto-resolve to a known job board (Greenhouse/Lever/Ashby/SmartRecruiters). Add a manual override in <code>config/companies.json</code> — see the README.</p>
+    <div id="unresolved-list" class="chip-list"></div>
+  </section>
+</main>
+
+<script src="/app.js?v=7"></script>
+</body>
+</html>
