@@ -9,11 +9,12 @@ API_URL = "https://api.lever.co/v0/postings/{slug}"
 
 
 def probe(slug: str, client: httpx.Client, company_name: str | None = None,
-          require_verification: bool = False) -> bool:
+          weak_slug: bool = False) -> bool:
     # Lever's posting objects embed no company-name field, so identity can never be
-    # confirmed here. verify_board therefore accepts a strong (full-name) slug on existence
-    # alone, but rejects every weak slug (require_verification=True with no org name) --
-    # a bare first word on Lever can't be told apart from an unrelated tenant.
+    # confirmed here -- verify_board can only reject on a contradicting name, and there is
+    # none, so any resolving slug (strong or weak) is accepted on existence alone. A weak
+    # first-word slug on Lever therefore can't be told apart from an unrelated tenant; that
+    # residual collision risk is handled by a manual override when found, not here.
     try:
         resp = client.get(API_URL.format(slug=slug), params={"mode": "json"}, timeout=10)
         if resp.status_code != 200:
@@ -21,7 +22,7 @@ def probe(slug: str, client: httpx.Client, company_name: str | None = None,
         data = resp.json()
         if not (isinstance(data, list) and data):
             return False
-        return verify_board(company_name, None, require_verification)
+        return verify_board(company_name, None, weak_slug)
     except Exception:
         return False
 

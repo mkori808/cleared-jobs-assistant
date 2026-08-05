@@ -72,11 +72,10 @@ def discover(company_name: str, client: httpx.Client) -> dict | None:
     a company like Applied Research Associates off Applied Intuition's "applied" board."""
     attempts = [(s, False) for s in strong_slugs(company_name)]
     attempts += [(s, True) for s in weak_slugs(company_name)]
-    for slug, require_verification in attempts:
+    for slug, weak in attempts:
         for ats_name, probe_fn in ATS_PROBES:
             try:
-                if probe_fn(slug, client, company_name=company_name,
-                            require_verification=require_verification):
+                if probe_fn(slug, client, company_name=company_name, weak_slug=weak):
                     return {"ats": ats_name, "identifier": slug}
             except Exception:
                 continue

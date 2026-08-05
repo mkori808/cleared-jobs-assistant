@@ -89,19 +89,29 @@ def confirms_identity(target: str, org_name: str) -> bool:
 
 
 def verify_board(company_name: str | None, org_name: str | None,
-                 require_verification: bool) -> bool:
+                 weak_slug: bool) -> bool:
     """Shared accept/reject decision for every ATS probe once it has resolved a live board
     and (if the platform exposes one) the board's self-reported org name.
 
-    - A name that's present but doesn't confirm identity is always rejected -- that's a
-      real collision, regardless of slug strength.
-    - When require_verification is set (the slug is a weak guess: a bare first word or an
-      acronym), a board that exposes NO org name is rejected too -- a weak slug is only
-      trustworthy when the platform can positively confirm who it belongs to. Lever and
-      Rippling expose no org name at all, so weak slugs never resolve on them (by design).
-    """
-    if company_name and org_name and not confirms_identity(company_name, org_name):
-        return False
-    if require_verification and not org_name:
-        return False
+    The check's strictness is keyed to how the slug was derived, because the same org-name
+    pattern means different things depending on slug strength:
+
+    - A STRONG slug (the whole company name, joined/hyphenated) resolving to a board is
+      already strong evidence. Its org name is checked leniently (same_company): a board
+      reporting a shortened form -- "Vannevar" for the slug "vannevarlabs" -- still passes.
+      Only an affirmatively different company is rejected.
+    - A WEAK slug (a bare first word) is a cheap guess that routinely lands on an unrelated
+      company. Its org name is checked strictly (confirms_identity): "Agile" reported by the
+      slug "agile" does NOT confirm "Agile Mission Integration".
+
+    An absent org name is accepted in both cases -- many boards (all Ashby boards seen here,
+    and Lever/Rippling/BambooHR entirely) expose none, and rejecting those would drop dozens
+    of legitimately-resolved companies. A weak slug landing on a no-name board it doesn't own
+    (the Applied Research Associates / "applied" collision) is fundamentally indistinguishable
+    from the rightful owner using that same board, so it can only be resolved by a manual
+    override, not here."""
+    if company_name and org_name:
+        matches = confirms_identity if weak_slug else same_company
+        if not matches(company_name, org_name):
+            return False
     return True

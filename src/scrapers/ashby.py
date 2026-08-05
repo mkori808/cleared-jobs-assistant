@@ -8,7 +8,7 @@ API_URL = "https://api.ashbyhq.com/posting-api/job-board/{slug}"
 
 
 def probe(slug: str, client: httpx.Client, company_name: str | None = None,
-          require_verification: bool = False) -> bool:
+          weak_slug: bool = False) -> bool:
     try:
         resp = client.get(API_URL.format(slug=slug), timeout=10)
         if resp.status_code != 200:
@@ -16,11 +16,12 @@ def probe(slug: str, client: httpx.Client, company_name: str | None = None,
         data = resp.json()
         if "jobs" not in data or not data["jobs"]:
             return False
-        # Many Ashby boards omit the org name entirely (both fields None) -- that's exactly
-        # the case that let slug "applied" pass for Applied Research Associates, so a weak
-        # slug with no name is now rejected by verify_board.
+        # Many Ashby boards omit the org name entirely (both fields None). With no name to
+        # contradict, verify_board accepts -- so a weak slug landing on a no-name board it
+        # doesn't own (the "applied" / Applied Research Associates collision) can't be caught
+        # here; that's resolved by a manual override, while a *named* board that disagrees is.
         org_name = data.get("organizationName") or data.get("companyName")
-        return verify_board(company_name, org_name, require_verification)
+        return verify_board(company_name, org_name, weak_slug)
     except Exception:
         return False
 

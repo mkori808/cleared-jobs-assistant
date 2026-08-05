@@ -14,7 +14,7 @@ API_URL = "https://apply.workable.com/api/v1/widget/accounts/{account}"
 
 
 def probe(account: str, client: httpx.Client, company_name: str | None = None,
-          require_verification: bool = False) -> bool:
+          weak_slug: bool = False) -> bool:
     try:
         resp = client.get(API_URL.format(account=account), timeout=10)
         if resp.status_code != 200:
@@ -25,7 +25,7 @@ def probe(account: str, client: httpx.Client, company_name: str | None = None,
         # openings is a valid (if temporarily empty) match, an unknown account is not.
         if "jobs" not in data:
             return False
-        return verify_board(company_name, data.get("name"), require_verification)
+        return verify_board(company_name, data.get("name"), weak_slug)
     except Exception:
         return False
 

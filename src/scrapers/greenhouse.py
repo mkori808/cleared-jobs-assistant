@@ -12,7 +12,7 @@ API_URL = "https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
 
 
 def probe(slug: str, client: httpx.Client, company_name: str | None = None,
-          require_verification: bool = False) -> bool:
+          weak_slug: bool = False) -> bool:
     """Returns True if this slug resolves to a real Greenhouse board for the target company."""
     try:
         resp = client.get(API_URL.format(slug=slug), params={"content": "false"}, timeout=10)
@@ -23,7 +23,7 @@ def probe(slug: str, client: httpx.Client, company_name: str | None = None,
             return False
         # company_name is stored per-posting; empty board -> no name to confirm against.
         org_name = (jobs[0].get("company_name") or "").strip() if jobs else None
-        return verify_board(company_name, org_name, require_verification)
+        return verify_board(company_name, org_name, weak_slug)
     except Exception:
         return False
 

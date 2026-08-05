@@ -159,6 +159,12 @@ def process_company(name: str, resolved: dict, client: httpx.Client) -> tuple[in
     ats = resolved["ats"]
     identifier = resolved["identifier"]
     if not ats:
+        # No board to fetch from -> nothing was "seen" this cycle, so any jobs still stored
+        # under this name are stale and must be deactivated. This is the cleanup path when a
+        # company is pinned to {ats: null} after a bad auto-resolution (e.g. a weak slug that
+        # had imported an unrelated company's jobs) -- without it, those wrong jobs would stay
+        # active forever, since the early return here otherwise skips mark_inactive_jobs below.
+        db.mark_inactive_jobs(name, [])
         return 0, 0, "unresolved (no matching ATS found — add a manual override)"
 
     fetch_fn = FETCHERS.get(ats)

@@ -20,7 +20,7 @@ DETAIL_URL = "https://{subdomain}.bamboohr.com/careers/{job_id}/detail"
 
 
 def probe(subdomain: str, client: httpx.Client, company_name: str | None = None,
-          require_verification: bool = False) -> bool:
+          weak_slug: bool = False) -> bool:
     try:
         resp = client.get(LIST_URL.format(subdomain=subdomain), timeout=10)
         if resp.status_code != 200:
@@ -29,8 +29,8 @@ def probe(subdomain: str, client: httpx.Client, company_name: str | None = None,
         if not data.get("result"):
             return False
         # BambooHR's list feed carries no reliable org-name field, so identity can't be
-        # confirmed -- strong (full-name) subdomains pass, weak slugs are rejected.
-        return verify_board(company_name, None, require_verification)
+        # confirmed -- with no name to contradict, any resolving subdomain is accepted.
+        return verify_board(company_name, None, weak_slug)
     except Exception:
         return False
 

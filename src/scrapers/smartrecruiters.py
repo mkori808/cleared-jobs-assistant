@@ -16,7 +16,7 @@ DETAIL_URL = "https://api.smartrecruiters.com/v1/companies/{slug}/postings/{post
 
 
 def probe(slug: str, client: httpx.Client, company_name: str | None = None,
-          require_verification: bool = False) -> bool:
+          weak_slug: bool = False) -> bool:
     try:
         resp = client.get(LIST_URL.format(slug=slug), params={"limit": 1}, timeout=10)
         if resp.status_code != 200:
@@ -25,7 +25,7 @@ def probe(slug: str, client: httpx.Client, company_name: str | None = None,
         if data.get("totalFound", 0) <= 0 or not data.get("content"):
             return False
         org_name = (data["content"][0].get("company") or {}).get("name") or None
-        return verify_board(company_name, org_name, require_verification)
+        return verify_board(company_name, org_name, weak_slug)
     except Exception:
         return False
 

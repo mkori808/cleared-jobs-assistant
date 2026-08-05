@@ -23,11 +23,11 @@ PAGE_SIZE = 50
 
 
 def probe(board_id: str, client: httpx.Client, company_name: str | None = None,
-          require_verification: bool = False) -> bool:
+          weak_slug: bool = False) -> bool:
     # The list response embeds no company-name field, so (like Lever) identity can't be
-    # confirmed here. verify_board accepts a strong slug on existence, rejects weak ones.
-    # Rippling board ids often don't match the company name anyway, so weak-slug guessing
-    # was never reliable here -- most Rippling companies need a manual override.
+    # confirmed here -- verify_board only rejects on a contradicting name, of which there is
+    # none, so a resolving slug is accepted on existence. Rippling board ids often don't
+    # match the company name anyway, so most Rippling companies need a manual override.
     try:
         resp = client.get(LIST_URL.format(board_id=board_id), params={"page": 0, "pageSize": 1}, timeout=10)
         if resp.status_code != 200:
@@ -36,7 +36,7 @@ def probe(board_id: str, client: httpx.Client, company_name: str | None = None,
         items = data.get("items", data if isinstance(data, list) else [])
         if not items:
             return False
-        return verify_board(company_name, None, require_verification)
+        return verify_board(company_name, None, weak_slug)
     except Exception:
         return False
 
