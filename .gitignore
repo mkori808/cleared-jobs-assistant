@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 data/tracker.db
 .venv/
+.env

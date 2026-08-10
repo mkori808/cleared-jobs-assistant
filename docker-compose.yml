@@ -1,0 +1,14 @@
+services:
+  clearance-tracker:
+    build: .
+    # Binds only to this host's WireGuard interface IP, so the port
+    # is unreachable except through the tunnel. Replace with the
+    # server's actual wg0 address (check with `wg show` / `ip a`).
+    ports:
+      - "10.0.0.1:8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./config/companies.json:/app/config/companies.json
+    restart: unless-stopped
