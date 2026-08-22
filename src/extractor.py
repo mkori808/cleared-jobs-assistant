@@ -23,7 +23,7 @@ LLM_MODEL = "claude-haiku-4-5"
 # Rows last written by the manual "Re-parse with AI" pass are exempt (see refresh.py) so a
 # version bump for a regex fix doesn't clobber deliberately LLM-curated data with a cheaper
 # regex re-extraction.
-EXTRACTION_VERSION = 9
+EXTRACTION_VERSION = 12
 
 # "Clearance Type: X" / "Clearance Required: X" is a common structured-field format on ATS
 # platforms like Workday (e.g. Northrop Grumman), separate from prose phrasing like "secret

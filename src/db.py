@@ -393,7 +393,16 @@ def get_jobs(company=None, clearance_only=False, clearance_level=None, active_on
     sort_by: 'clearance_level', 'salary_max', 'resume_match_grade', or None (defaults to last_seen)
     sort_order: 'asc' or 'desc'
     """
-    query = "SELECT * FROM jobs WHERE 1=1"
+    # Excludes description_snippet/description_full: the dashboard's list view never reads
+    # them (they're only needed by the LLM reparse/resume-score passes, which fetch them
+    # separately), and including them here blows up the response to 100+MB across ~14k jobs.
+    query = """SELECT id, company, title, location, city, state, country, remote, location_source, url,
+                      clearance_level, clearance_keywords, citizenship_required, polygraph_mentioned,
+                      salary_min, salary_max, salary_currency, salary_interval, salary_source,
+                      equity_mentioned, equity_text, resume_match_grade, resume_match_rationale,
+                      extraction_version, first_seen, last_seen, is_active,
+                      applied_at, application_status, application_notes
+               FROM jobs WHERE 1=1"""
     params = []
     if company:
         query += " AND company = ?"

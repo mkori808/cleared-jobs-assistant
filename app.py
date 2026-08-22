@@ -3,6 +3,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -127,6 +128,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Clearance Job Tracker", lifespan=lifespan)
+# /api/jobs ships the full filtered result set in one response (pagination/search are
+# deliberately client-side for instant, no-round-trip interaction -- see static/app.js
+# getVisibleJobs/renderJobs). That means payload size, not request count, is what makes it
+# slow over a constrained link (e.g. WireGuard from off-network). JSON text compresses very
+# well, so gzip is a transparent fix that doesn't touch that client-side design at all.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.get("/api/jobs")

@@ -104,12 +104,23 @@ def verify_board(company_name: str | None, org_name: str | None,
       company. Its org name is checked strictly (confirms_identity): "Agile" reported by the
       slug "agile" does NOT confirm "Agile Mission Integration".
 
-    An absent org name is accepted in both cases -- many boards (all Ashby boards seen here,
-    and Lever/Rippling/BambooHR entirely) expose none, and rejecting those would drop dozens
-    of legitimately-resolved companies. A weak slug landing on a no-name board it doesn't own
-    (the Applied Research Associates / "applied" collision) is fundamentally indistinguishable
-    from the rightful owner using that same board, so it can only be resolved by a manual
-    override, not here."""
+    An absent org name is accepted for a STRONG slug -- many boards (all Ashby boards seen
+    here, and Lever/Rippling/BambooHR entirely) expose none, and rejecting those would drop
+    dozens of legitimately-resolved companies whose full-name slug is already strong evidence
+    on its own.
+
+    A WEAK slug with no org name to check is the opposite case: a cheap, collision-prone guess
+    (bare first word / acronym) with nothing confirming it belongs to the target company at
+    all. Auto-accepting these silently imported wrong companies' jobs under our tracked name
+    more than once -- "Bison Group" (bamboohr slug "bison") turned out to be a landscaping
+    company, "Fuel Consulting" (rippling slug "fuel") a freelance marketing-gig board,
+    "Cornerstone Defense" (bamboohr slug "cornerstone") an actual church -- all found only by
+    manually inspecting the imported job titles after the fact. Rejecting instead sends the
+    company to "unresolved," same as the Applied Research Associates / "applied" collision --
+    it's fundamentally indistinguishable from the rightful owner using that board, so it can
+    only be resolved by a manual override, not here."""
+    if weak_slug and not org_name:
+        return False
     if company_name and org_name:
         matches = confirms_identity if weak_slug else same_company
         if not matches(company_name, org_name):

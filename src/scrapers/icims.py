@@ -93,14 +93,17 @@ def _parse_job_card(card, base_url: str) -> dict | None:
         # Extract job ID from URL (jobs/14275/... or jobs?id=14275)
         external_id = _extract_job_id(job_url)
 
-        # Location
-        location_spans = card.find_all("span")
+        # Location: read the value from the span immediately following the "Job Locations"
+        # field-label, rather than guessing by content (a prior version scanned for any span
+        # containing "US-"/"Remote"/a dash -- but a bare "US" location has no dash to match,
+        # so the loop kept scanning and could land on an unrelated dash-containing span first,
+        # e.g. the requisition number "2026-169831").
         location = None
-        for span in location_spans:
-            text = span.get_text(strip=True)
-            if text and ("US-" in text or "Remote" in text or text.count("-") >= 1):
-                location = text
-                break
+        label = card.find("span", string="Job Locations")
+        if label:
+            value_span = label.find_next_sibling("span")
+            if value_span:
+                location = value_span.get_text(strip=True) or None
 
         # Posted date
         posted_span = card.find("span", title=True)

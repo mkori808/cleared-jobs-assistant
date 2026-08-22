@@ -82,6 +82,14 @@ KNOWN_COUNTRY_NAMES = {
 # single-token "city" branch below, polluting the city filter with fake entries.
 _PLACEHOLDER_LOCATION_RE = re.compile(r"^\d+\s+locations?$|^anywhere\b", re.I)
 
+# iCIMS commonly encodes location as "US-VA-Chantilly" (country code - state code - city,
+# dash-joined, no spaces/commas) -- e.g. Peraton, LMI, TekSynap, IBM. With no comma to split
+# on, this used to fall into the single-token branch below and dump the whole raw string in
+# as a garbled "city" ("US-VA-Chantilly"), leaving state/country blank. Matched narrowly (two
+# short all-letter codes before the city) so it doesn't misfire on unrelated dash-containing
+# strings like "New York-based" or a company name.
+_DASH_COUNTRY_STATE_CITY_RE = re.compile(r"^([A-Za-z]{2})-([A-Za-z]{2,3})-(.+)$")
+
 
 def _clean_location_fragment(raw: str) -> str:
     fragment = raw.split(";")[0]
@@ -137,14 +145,24 @@ def parse_location(raw: str) -> dict:
 
     remote = bool(REMOTE_RE.search(raw))
     # Some scrapers join multiple valid locations for one posting with "; " (e.g. Deloitte
-    # roles open to 19 offices) or " or " (e.g. "Seattle, WA or McLean, VA or Remote (USA)")
-    # -- there's no single "correct" location to store structured fields for, so take just the
-    # first one rather than letting its parts bleed into the comma-based parsing below (which
-    # previously mangled a trailing "... or Remote (USA)" down to a bare state code landing in
-    # the country field).
-    first_location = re.split(r";|\s+or\s+", raw, flags=re.I)[0].strip()
+    # roles open to 19 offices), " or " (e.g. "Seattle, WA or McLean, VA or Remote (USA)"), or
+    # " | " (iCIMS, e.g. "US-VA-Chantilly | US-VA-Springfield") -- there's no single "correct"
+    # location to store structured fields for, so take just the first one rather than letting
+    # its parts bleed into the parsing below (which previously mangled a trailing "... or
+    # Remote (USA)" down to a bare state code landing in the country field, and separately let
+    # the dash-format branch's greedy city match swallow a second "|"-joined location whole).
+    first_location = re.split(r";|\s+or\s+|\s*\|\s*", raw, flags=re.I)[0].strip()
     if _PLACEHOLDER_LOCATION_RE.match(first_location):
         return {"city": None, "state": None, "country": None, "remote": remote}
+
+    dash_match = _DASH_COUNTRY_STATE_CITY_RE.match(first_location)
+    if dash_match:
+        country_code, region_code, city_part = dash_match.groups()
+        matched_state = _match_state(region_code)
+        if country_code.upper() == "US" and matched_state:
+            return {"city": city_part.strip(), "state": matched_state,
+                    "country": "United States", "remote": remote}
+
     parts = [p.strip() for p in first_location.split(",") if p.strip()]
 
     city = state = country = None

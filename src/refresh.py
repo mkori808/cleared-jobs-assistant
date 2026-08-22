@@ -14,7 +14,8 @@ from . import db, discovery, extractor
 from .scrapers import (
     greenhouse, lever, ashby, smartrecruiters, workday, rippling, careers_widget, generic,
     bamboohr, epsilon_systems, workable, icims, mckinsey, goliath, deloitte, ey, elderresearch,
-    evansandchambers, lyntris, endgame, teamtailor, pinpoint, adp, taleo, breezy,
+    evansandchambers, lyntris, endgame, teamtailor, pinpoint, adp, taleo, breezy, gem, clearcompany,
+    paylocity,
 )
 from .scrapers._location import parse_location, normalize_state, normalize_country, extract_leaked_state
 
@@ -45,6 +46,9 @@ FETCHERS = {
     "adp": adp.fetch_jobs,
     "taleo": taleo.fetch_jobs,
     "breezy": breezy.fetch_jobs,
+    "gem": gem.fetch_jobs,
+    "clearcompany": clearcompany.fetch_jobs,
+    "paylocity": paylocity.fetch_jobs,
 }
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (clearance-job-tracker/1.0; personal use)"}
@@ -132,8 +136,15 @@ def _apply_llm_result(rj: dict, llm_result: dict, has_structured_loc: bool, has_
 def _apply_regex_fallback(rj: dict, text: str, has_structured_loc: bool, has_structured_salary: bool):
     """Same shape as _apply_llm_result, but derived with regex -- used only when the LLM call
     (single or batched) failed outright, so a hiccup doesn't leave a job with no data at all."""
-    signals = extractor.extract(text)
-    equity = extractor.extract_equity(text)
+    # Job titles occasionally state a clearance requirement directly (e.g. "Reverse Engineer
+    # Level 2 - TS/SCI with Poly"). That's worth catching everywhere, but it's essential for
+    # ATS platforms like ADP (see scrapers/adp.py) that expose no description text at all --
+    # there the title is the *only* signal available, and without this every ADP-hosted job
+    # silently comes back "None mentioned" regardless of what the posting actually requires.
+    # Only affects what's fed to the extractors below, not what's stored as description_full.
+    extract_text = f"{rj.get('title') or ''} {text}"
+    signals = extractor.extract(extract_text)
+    equity = extractor.extract_equity(extract_text)
     if has_structured_loc:
         loc = _clean_country_state(rj.get("city"), rj.get("state"), rj.get("country"),
                                     bool(rj.get("remote")), "structured")
@@ -149,7 +160,7 @@ def _apply_regex_fallback(rj: dict, text: str, has_structured_loc: bool, has_str
             "salary_source": "structured",
         }
     else:
-        parsed_salary = extractor.extract_salary(text)
+        parsed_salary = extractor.extract_salary(extract_text)
         salary = {**parsed_salary, "salary_source": "text" if parsed_salary["salary_min"] else None}
     return signals, loc, salary, equity
 
