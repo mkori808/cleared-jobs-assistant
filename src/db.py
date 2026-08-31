@@ -368,12 +368,17 @@ def mark_inactive_jobs(company, seen_ids):
                 conn.execute("UPDATE jobs SET is_active = 0 WHERE id = ?", (r["id"],))
 
 
-def get_jobs(company=None, clearance_only=False, clearance_level=None, active_only=True,
-             cities=None, states=None, countries=None, remote_only=False, include_remote=False,
-             salary_min=None, salary_max=None, grades=None, equity_only=False,
-             sort_by=None, sort_order="desc"):
-    """cities/states/countries are each an optional list of values -- multiple values within
-    one of them are OR'd together (any match), but the three dimensions are AND'd against each
+def _build_job_filters(company=None, clearance_only=False, clearance_level=None, active_only=True,
+                        cities=None, states=None, countries=None, remote_only=False, include_remote=False,
+                        salary_min=None, salary_max=None, grades=None, equity_only=False,
+                        exclude_location=()):
+    """Builds the WHERE-clause fragment (starting with ' AND ...', to append after 'WHERE 1=1')
+    and matching params shared by get_jobs() and get_locations() -- the latter reuses this so
+    each location dropdown's options are computed under the *same* filters the job list itself
+    uses, just with that one dropdown's own dimension left out (see exclude_location below).
+
+    cities/states/countries are each an optional list of values -- multiple values within one
+    of them are OR'd together (any match), but the three dimensions are AND'd against each
     other (so picking City=Reston + State=CA correctly returns nothing, since no job is both).
 
     include_remote loosens that: when set alongside a city/state/country filter, it OR's in
@@ -390,6 +395,66 @@ def get_jobs(company=None, clearance_only=False, clearance_level=None, active_on
 
     grades: optional list of resume_match_grade values (e.g. ["A", "B"]) -- OR'd together.
 
+    exclude_location: dimensions ('cities'/'states'/'countries') to leave out of the location
+    AND-clause -- get_locations() uses this so e.g. the *city* facet isn't also filtered by
+    whatever city is already selected (self-defeating -- it'd never show anything else), while
+    still narrowing by whatever state/country *is* selected.
+    """
+    where = ""
+    params = []
+    if company:
+        where += " AND company = ?"
+        params.append(company)
+    if clearance_level:
+        where += " AND clearance_level = ?"
+        params.append(clearance_level)
+    elif clearance_only:
+        where += " AND clearance_level IS NOT NULL AND clearance_level != 'None mentioned'"
+    if active_only:
+        where += " AND is_active = 1"
+
+    location_clauses = []
+    location_params = []
+    if cities and "cities" not in exclude_location:
+        location_clauses.append(f"city IN ({','.join('?' for _ in cities)})")
+        location_params.extend(cities)
+    if states and "states" not in exclude_location:
+        location_clauses.append(f"state IN ({','.join('?' for _ in states)})")
+        location_params.extend(states)
+    if countries and "countries" not in exclude_location:
+        location_clauses.append(f"country IN ({','.join('?' for _ in countries)})")
+        location_params.extend(countries)
+    if location_clauses:
+        location_sql = " AND ".join(location_clauses)
+        if include_remote:
+            where += f" AND (({location_sql}) OR remote = 1)"
+        else:
+            where += f" AND {location_sql}"
+        params.extend(location_params)
+
+    if remote_only:
+        where += " AND remote = 1"
+    if salary_min is not None:
+        where += " AND salary_max IS NOT NULL AND salary_max >= ?"
+        params.append(salary_min)
+    if salary_max is not None:
+        where += " AND salary_min IS NOT NULL AND salary_min <= ?"
+        params.append(salary_max)
+    if grades:
+        where += f" AND resume_match_grade IN ({','.join('?' for _ in grades)})"
+        params.extend(grades)
+    if equity_only:
+        where += " AND equity_mentioned = 1"
+
+    return where, params
+
+
+def get_jobs(company=None, clearance_only=False, clearance_level=None, active_only=True,
+             cities=None, states=None, countries=None, remote_only=False, include_remote=False,
+             salary_min=None, salary_max=None, grades=None, equity_only=False,
+             sort_by=None, sort_order="desc"):
+    """See _build_job_filters for the filter semantics.
+
     sort_by: 'clearance_level', 'salary_max', 'resume_match_grade', or None (defaults to last_seen)
     sort_order: 'asc' or 'desc'
     """
@@ -403,50 +468,12 @@ def get_jobs(company=None, clearance_only=False, clearance_level=None, active_on
                       extraction_version, first_seen, last_seen, is_active,
                       applied_at, application_status, application_notes
                FROM jobs WHERE 1=1"""
-    params = []
-    if company:
-        query += " AND company = ?"
-        params.append(company)
-    if clearance_level:
-        query += " AND clearance_level = ?"
-        params.append(clearance_level)
-    elif clearance_only:
-        query += " AND clearance_level IS NOT NULL AND clearance_level != 'None mentioned'"
-    if active_only:
-        query += " AND is_active = 1"
-
-    location_clauses = []
-    location_params = []
-    if cities:
-        location_clauses.append(f"city IN ({','.join('?' for _ in cities)})")
-        location_params.extend(cities)
-    if states:
-        location_clauses.append(f"state IN ({','.join('?' for _ in states)})")
-        location_params.extend(states)
-    if countries:
-        location_clauses.append(f"country IN ({','.join('?' for _ in countries)})")
-        location_params.extend(countries)
-    if location_clauses:
-        location_sql = " AND ".join(location_clauses)
-        if include_remote:
-            query += f" AND (({location_sql}) OR remote = 1)"
-        else:
-            query += f" AND {location_sql}"
-        params.extend(location_params)
-
-    if remote_only:
-        query += " AND remote = 1"
-    if salary_min is not None:
-        query += " AND salary_max IS NOT NULL AND salary_max >= ?"
-        params.append(salary_min)
-    if salary_max is not None:
-        query += " AND salary_min IS NOT NULL AND salary_min <= ?"
-        params.append(salary_max)
-    if grades:
-        query += f" AND resume_match_grade IN ({','.join('?' for _ in grades)})"
-        params.extend(grades)
-    if equity_only:
-        query += " AND equity_mentioned = 1"
+    where, params = _build_job_filters(
+        company=company, clearance_only=clearance_only, clearance_level=clearance_level,
+        active_only=active_only, cities=cities, states=states, countries=countries,
+        remote_only=remote_only, include_remote=include_remote, salary_min=salary_min,
+        salary_max=salary_max, grades=grades, equity_only=equity_only)
+    query += where
 
     # Handle sorting. Blank cells always sort last regardless of direction: the CASE
     # expressions below rank real values 0..N and bucket anything else (NULL or an
@@ -480,26 +507,52 @@ def get_jobs(company=None, clearance_only=False, clearance_level=None, active_on
     return rows
 
 
-def get_locations():
+def get_locations(company=None, clearance_only=False, clearance_level=None,
+                   cities=None, states=None, countries=None, remote_only=False,
+                   include_remote=False, salary_min=None, salary_max=None,
+                   grades=None, equity_only=False):
     """Distinct city/state/country facets for populating the dashboard's location filters,
     each ordered by how many active jobs match it. Cities are capped to the top 60 by count
-    since city cardinality can get large; state/country lists are naturally small."""
+    since city cardinality can get large; state/country lists are naturally small.
+
+    Every non-location filter (company/clearance/salary/grades/equity/remote_only) narrows
+    all three facets, so e.g. picking a company only shows cities/states/countries that
+    company actually has active postings in. Each location facet also gets narrowed by the
+    *other two* location dimensions -- picking State=CA narrows the city list to CA cities --
+    but never by its own filter (see _build_job_filters' exclude_location), since a dropdown
+    filtering itself down to only its own current selection would be useless."""
+    common = dict(company=company, clearance_only=clearance_only, clearance_level=clearance_level,
+                  active_only=True, cities=cities, states=states, countries=countries,
+                  remote_only=remote_only, include_remote=include_remote, salary_min=salary_min,
+                  salary_max=salary_max, grades=grades, equity_only=equity_only)
     with get_conn() as conn:
-        cities = [dict(r) for r in conn.execute(
-            """SELECT city AS value, COUNT(*) AS count FROM jobs
-               WHERE is_active = 1 AND city IS NOT NULL AND city != ''
-               GROUP BY city ORDER BY count DESC LIMIT 60""")]
-        states = [dict(r) for r in conn.execute(
-            """SELECT state AS value, COUNT(*) AS count FROM jobs
-               WHERE is_active = 1 AND state IS NOT NULL AND state != ''
-               GROUP BY state ORDER BY count DESC""")]
-        countries = [dict(r) for r in conn.execute(
-            """SELECT country AS value, COUNT(*) AS count FROM jobs
-               WHERE is_active = 1 AND country IS NOT NULL AND country != ''
-               GROUP BY country ORDER BY count DESC""")]
+        where, params = _build_job_filters(**common, exclude_location=("cities",))
+        cities_result = [dict(r) for r in conn.execute(
+            f"""SELECT city AS value, COUNT(*) AS count FROM jobs
+                WHERE city IS NOT NULL AND city != '' {where}
+                GROUP BY city ORDER BY count DESC LIMIT 60""", params)]
+
+        where, params = _build_job_filters(**common, exclude_location=("states",))
+        states_result = [dict(r) for r in conn.execute(
+            f"""SELECT state AS value, COUNT(*) AS count FROM jobs
+                WHERE state IS NOT NULL AND state != '' {where}
+                GROUP BY state ORDER BY count DESC""", params)]
+
+        where, params = _build_job_filters(**common, exclude_location=("countries",))
+        countries_result = [dict(r) for r in conn.execute(
+            f"""SELECT country AS value, COUNT(*) AS count FROM jobs
+                WHERE country IS NOT NULL AND country != '' {where}
+                GROUP BY country ORDER BY count DESC""", params)]
+
+        # Excludes all three location dimensions (not just its own) -- remote_count reflects
+        # how many remote jobs match the non-location filters, independent of whatever
+        # city/state/country happens to be selected (mirroring include_remote's own semantics
+        # of "remote jobs regardless of location" in get_jobs).
+        where, params = _build_job_filters(**{**common, "cities": None, "states": None, "countries": None})
         remote_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM jobs WHERE is_active = 1 AND remote = 1"
+            f"SELECT COUNT(*) AS c FROM jobs WHERE remote = 1 {where}", params
         ).fetchone()["c"]
+        cities, states, countries = cities_result, states_result, countries_result
     return {"cities": cities, "states": states, "countries": countries, "remote_count": remote_count}
 
 

@@ -10,12 +10,44 @@ import httpx
 from bs4 import BeautifulSoup
 
 
+def _field_value(card, label_matches) -> str | None:
+    """Finds a field-label span whose text satisfies label_matches, then reads its value from
+    whichever DOM shape this tenant uses: a sibling span in the same wrapping element, or a
+    sibling <dd class="iCIMS_JobHeaderData"> of the label's parent <dt>.
+
+    At least one tenant (QinetiQ US) mislabels its "Posted Date" field's wrapping span as "Job
+    Locations" (a template bug, not a real second location field) sitting right next to the
+    real "Job Location" field -- so a naive first-match-wins search over every label containing
+    "location" can return "4 days ago" instead of the city/state. The posted-date value span is
+    reliably identifiable across every tenant seen (LMI included) by its `title="<timestamp>"`
+    attribute (used for the hover tooltip), which no real location value carries -- skip it."""
+    for label in card.find_all("span", class_="field-label"):
+        if not label_matches(label.get_text(strip=True)):
+            continue
+        value_span = label.find_next_sibling("span")
+        if value_span and not value_span.has_attr("title"):
+            text = value_span.get_text(strip=True)
+            if text:
+                return text
+        dt = label.find_parent("dt")
+        dd = dt.find_next_sibling("dd", class_="iCIMS_JobHeaderData") if dt else None
+        if dd:
+            text = dd.get_text(strip=True)
+            if text:
+                return text
+    return None
+
+
 def fetch_jobs(identifier: str, client: httpx.Client) -> list[dict]:
     """Fetch jobs from an iCIMS careers site.
 
-    identifier: company slug (e.g. "lmi" -> careers-lmi.icims.com)
+    identifier: company slug (e.g. "lmi" -> careers-lmi.icims.com), or the full subdomain for
+    tenants that don't use the usual "careers-" prefix (e.g. "jobs-bylight" ->
+    jobs-bylight.icims.com, ByLight's actual subdomain) -- any identifier already starting with
+    a known iCIMS subdomain prefix is used as-is instead of getting "careers-" prepended again.
     """
-    base_url = f"https://careers-{identifier}.icims.com"
+    subdomain = identifier if identifier.startswith(("careers-", "jobs-")) else f"careers-{identifier}"
+    base_url = f"https://{subdomain}.icims.com"
     search_url = f"{base_url}/jobs/search?ss=1&in_iframe=1"
 
     jobs = []
@@ -58,9 +90,11 @@ def fetch_jobs(identifier: str, client: httpx.Client) -> list[dict]:
             # posting text (requirements, clearance level, etc. all live there, not in the
             # card). This was previously dead code (defined but never called), so every
             # iCIMS-hosted company was silently getting teaser-only descriptions.
-            full_desc = _fetch_job_description(job["url"], client)
-            if full_desc:
-                job["description_html"] = full_desc
+            detail = _fetch_job_detail(job["url"], client)
+            if detail.get("description"):
+                job["description_html"] = detail["description"]
+            if not job["location"] and detail.get("location"):
+                job["location"] = detail["location"]
             jobs.append(job)
             new_count += 1
 
@@ -93,17 +127,28 @@ def _parse_job_card(card, base_url: str) -> dict | None:
         # Extract job ID from URL (jobs/14275/... or jobs?id=14275)
         external_id = _extract_job_id(job_url)
 
-        # Location: read the value from the span immediately following the "Job Locations"
-        # field-label, rather than guessing by content (a prior version scanned for any span
-        # containing "US-"/"Remote"/a dash -- but a bare "US" location has no dash to match,
-        # so the loop kept scanning and could land on an unrelated dash-containing span first,
-        # e.g. the requisition number "2026-169831").
-        location = None
-        label = card.find("span", string="Job Locations")
-        if label:
-            value_span = label.find_next_sibling("span")
-            if value_span:
-                location = value_span.get_text(strip=True) or None
+        # Location: read from whichever field-label names it, rather than guessing by content
+        # (a prior version scanned for any span containing "US-"/"Remote"/a dash -- but a bare
+        # "US" location has no dash to match, so the loop kept scanning and could land on an
+        # unrelated dash-containing span first, e.g. the requisition number "2026-169831").
+        # Tenants vary in both label text and DOM shape:
+        #   - LMI/Peraton/TekSynap: label "Job Locations", value is a *sibling span* in the same
+        #     wrapping div.
+        #   - FTI Defense: label "Location : Location", value sits in a sibling <dd> of the
+        #     label's parent <dt> instead (not a sibling of the label span itself).
+        #   - Brandes Associates: no single location label at all -- separate "City" and "State"
+        #     labels, each dt/dd-shaped like FTI's.
+        # _field_value handles both DOM shapes; try a combined location label first, and fall
+        # back to combining City+State only if no single label matches.
+        location = _field_value(card, lambda text: "location" in text.lower())
+        if not location:
+            parts = {}
+            for name in ("City", "State"):
+                value = _field_value(card, lambda text, name=name: text.lower() == name.lower())
+                if value:
+                    parts[name] = value
+            if parts:
+                location = ", ".join(parts[k] for k in ("City", "State") if k in parts)
 
         # Posted date
         posted_span = card.find("span", title=True)
@@ -145,20 +190,28 @@ def _extract_job_id(url: str) -> str:
     return url.split("/")[-1][:50]  # Fallback to last URL segment
 
 
-def _fetch_job_description(job_url: str, client: httpx.Client) -> str:
-    """Fetch the full job description from a detail page. iCIMS detail pages don't have a
-    single reliably-named description container (no class with "description" in it, despite
-    what the old version of this function assumed -- it silently fell back to raw HTML/JS
-    instead of real text), but the content is server-rendered directly into the page body, so
-    stripping script/style and taking the whole visible text works and picks up the labeled
-    "Clearance" field iCIMS shows alongside "Job Locations"/"Requisition ID"/etc."""
+def _fetch_job_detail(job_url: str, client: httpx.Client) -> dict:
+    """Fetch a job's detail page for its full description and (as a fallback) its location.
+    iCIMS detail pages don't have a single reliably-named description container (no class with
+    "description" in it, despite what an older version of this function assumed -- it silently
+    fell back to raw HTML/JS instead of real text), but the content is server-rendered directly
+    into the page body, so stripping script/style and taking the whole visible text works and
+    picks up the labeled "Clearance" field iCIMS shows alongside "Job Locations"/"Requisition
+    ID"/etc. Location is extracted from the same page (before script/style are stripped) for
+    tenants like QinetiQ US whose search-result cards carry no location field at all -- only the
+    detail page does."""
     try:
         resp = client.get(job_url, timeout=15)
         if resp.status_code != 200:
-            return ""
+            return {}
         soup = BeautifulSoup(resp.text, "html.parser")
+
+        location = _field_value(soup, lambda text: "location" in text.lower())
+
         for tag in soup(["script", "style"]):
             tag.decompose()
-        return soup.get_text(separator=" ", strip=True)[:8000]
+        description = soup.get_text(separator=" ", strip=True)[:8000]
+
+        return {"description": description, "location": location}
     except Exception:
-        return ""
+        return {}

@@ -6,7 +6,7 @@
 <title>Clearance Job Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css?v=7">
+<link rel="stylesheet" href="/style.css?v=10">
 </head>
 <body>
 
@@ -67,10 +67,10 @@
   <section class="filters-panel">
     <div class="filters-row">
       <input type="text" id="search-input" placeholder="Search title or company…" class="control search-box">
-      <select id="company-filter" class="control">
+      <select id="company-filter" class="control filter-control">
         <option value="">All companies</option>
       </select>
-      <select id="clearance-filter" class="control">
+      <select id="clearance-filter" class="control filter-control">
         <option value="">Any clearance</option>
         <option value="clearance_only">Clearance mentioned</option>
         <optgroup label="Specific clearance">
@@ -88,13 +88,13 @@
           <option value="level:None mentioned">None mentioned</option>
         </optgroup>
       </select>
-      <div class="salary-range control">
+      <div class="salary-range control filter-control">
         <input type="number" id="salary-min-input" placeholder="Min $" class="salary-input">
         <span class="salary-dash">–</span>
         <input type="number" id="salary-max-input" placeholder="Max $" class="salary-input">
       </div>
       <div class="custom-multiselect">
-        <button class="multiselect-toggle control" data-filter="grade">Match grade <span class="multiselect-count"></span></button>
+        <button class="multiselect-toggle control filter-control" data-filter="grade">Match grade <span class="multiselect-count"></span></button>
         <div class="multiselect-dropdown" id="grade-dropdown">
           <div class="multiselect-options" id="grade-options"></div>
         </div>
@@ -106,45 +106,38 @@
         <option value="D">D</option>
         <option value="F">F</option>
       </select>
+      <div class="custom-multiselect">
+        <button class="multiselect-toggle control filter-control" data-filter="city">City <span class="multiselect-count"></span></button>
+        <div class="multiselect-dropdown" id="city-dropdown">
+          <div class="multiselect-search"><input type="text" placeholder="Search cities…" class="multiselect-search-input"></div>
+          <div class="multiselect-options" id="city-options"></div>
+        </div>
+      </div>
+      <div class="custom-multiselect">
+        <button class="multiselect-toggle control filter-control" data-filter="state">State <span class="multiselect-count"></span></button>
+        <div class="multiselect-dropdown" id="state-dropdown">
+          <div class="multiselect-search"><input type="text" placeholder="Search states…" class="multiselect-search-input"></div>
+          <div class="multiselect-options" id="state-options"></div>
+        </div>
+      </div>
+      <div class="custom-multiselect">
+        <button class="multiselect-toggle control filter-control" data-filter="country">Country <span class="multiselect-count"></span></button>
+        <div class="multiselect-dropdown" id="country-dropdown">
+          <div class="multiselect-search"><input type="text" placeholder="Search countries…" class="multiselect-search-input"></div>
+          <div class="multiselect-options" id="country-options"></div>
+        </div>
+      </div>
       <label class="toggle-chip">
         <input type="checkbox" id="remote-only-check">
         <span>Remote</span>
       </label>
-      <label class="toggle-chip">
-        <input type="checkbox" id="equity-only-check">
-        <span>Equity</span>
-      </label>
-    </div>
-    <div class="filters-row">
-      <div class="location-group">
-        <label class="filter-label">Location:</label>
-        <div class="location-dropdowns">
-          <div class="custom-multiselect">
-            <button class="multiselect-toggle control" data-filter="city">City <span class="multiselect-count"></span></button>
-            <div class="multiselect-dropdown" id="city-dropdown">
-              <div class="multiselect-search"><input type="text" placeholder="Search cities…" class="multiselect-search-input"></div>
-              <div class="multiselect-options" id="city-options"></div>
-            </div>
-          </div>
-          <div class="custom-multiselect">
-            <button class="multiselect-toggle control" data-filter="state">State <span class="multiselect-count"></span></button>
-            <div class="multiselect-dropdown" id="state-dropdown">
-              <div class="multiselect-search"><input type="text" placeholder="Search states…" class="multiselect-search-input"></div>
-              <div class="multiselect-options" id="state-options"></div>
-            </div>
-          </div>
-          <div class="custom-multiselect">
-            <button class="multiselect-toggle control" data-filter="country">Country <span class="multiselect-count"></span></button>
-            <div class="multiselect-dropdown" id="country-dropdown">
-              <div class="multiselect-search"><input type="text" placeholder="Search countries…" class="multiselect-search-input"></div>
-              <div class="multiselect-options" id="country-options"></div>
-            </div>
-          </div>
-        </div>
-      </div>
       <label class="toggle-chip" title="Also include every remote job, regardless of its own city/state/country">
         <input type="checkbox" id="include-remote-check">
         <span>+ Remote jobs</span>
+      </label>
+      <label class="toggle-chip">
+        <input type="checkbox" id="equity-only-check">
+        <span>Equity</span>
       </label>
       <button type="button" id="clear-location-btn" class="btn-link">Clear location</button>
     </div>
@@ -242,6 +235,20 @@
   </section>
 </main>
 
-<script src="/app.js?v=7"></script>
+<div id="match-rationale-overlay" class="modal-overlay" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="match-rationale-title">
+    <button id="match-rationale-close" class="modal-close" aria-label="Close">&times;</button>
+    <div class="modal-header">
+      <span id="match-rationale-grade" class="match-grade"></span>
+      <div>
+        <h2 id="match-rationale-title"></h2>
+        <p id="match-rationale-company" class="modal-subtitle"></p>
+      </div>
+    </div>
+    <p id="match-rationale-text" class="modal-body"></p>
+  </div>
+</div>
+
+<script src="/app.js?v=9"></script>
 </body>
 </html>

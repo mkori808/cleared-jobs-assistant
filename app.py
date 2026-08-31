@@ -152,8 +152,19 @@ def api_jobs(company: str | None = None, clearance_only: bool = False, clearance
 
 
 @app.get("/api/locations")
-def api_locations():
-    return db.get_locations()
+def api_locations(company: str | None = None, clearance_only: bool = False, clearance_level: str | None = None,
+                   cities: list[str] | None = Query(None), states: list[str] | None = Query(None),
+                   countries: list[str] | None = Query(None), remote_only: bool = False,
+                   include_remote: bool = False, salary_min: float | None = None,
+                   salary_max: float | None = None, grades: list[str] | None = Query(None),
+                   equity_only: bool = False):
+    """Takes the same filter params as /api/jobs so the dashboard can narrow each location
+    dropdown's own options to what's actually available under the other currently-active
+    filters (e.g. picking State=CA narrows the city list to CA cities)."""
+    return db.get_locations(company=company, clearance_only=clearance_only, clearance_level=clearance_level,
+                            cities=cities, states=states, countries=countries, remote_only=remote_only,
+                            include_remote=include_remote, salary_min=salary_min, salary_max=salary_max,
+                            grades=grades, equity_only=equity_only)
 
 
 @app.get("/api/companies")

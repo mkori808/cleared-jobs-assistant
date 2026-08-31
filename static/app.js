@@ -28,8 +28,25 @@ const MATCH_CLASS = { A: "match-a", B: "match-b", C: "match-c", D: "match-d", F:
 function renderMatch(job) {
   if (!job.resume_match_grade) return "—";
   const cls = MATCH_CLASS[job.resume_match_grade] || "match-c";
-  const title = job.resume_match_rationale ? job.resume_match_rationale.replace(/"/g, "&quot;") : "";
-  return `<span class="match-grade ${cls}" title="${title}">${job.resume_match_grade}</span>`;
+  return `<span class="match-grade ${cls}" onclick="showMatchRationale('${job.id}')">${job.resume_match_grade}</span>`;
+}
+
+function showMatchRationale(jobId) {
+  const job = state.jobs.find(j => j.id === jobId);
+  if (!job || !job.resume_match_grade) return;
+
+  const badge = document.getElementById("match-rationale-grade");
+  badge.textContent = job.resume_match_grade;
+  badge.className = `match-grade ${MATCH_CLASS[job.resume_match_grade] || "match-c"}`;
+  document.getElementById("match-rationale-title").textContent = job.title;
+  document.getElementById("match-rationale-company").textContent = job.company;
+  document.getElementById("match-rationale-text").textContent =
+    job.resume_match_rationale || "No rationale was recorded for this grade.";
+  document.getElementById("match-rationale-overlay").hidden = false;
+}
+
+function hideMatchRationale() {
+  document.getElementById("match-rationale-overlay").hidden = true;
 }
 
 function formatSalary(job) {
@@ -167,22 +184,34 @@ async function runDiscoverCompanies() {
   }, 2000);
 }
 
-function fillMultiSelect(selectId, facets) {
-  document.getElementById(selectId).innerHTML =
-    facets.map(f => `<option value="${f.value}">${f.value} (${f.count})</option>`).join("");
+// Shared by loadJobs() and loadLocations(): both need the exact same set of active filters --
+// /api/locations uses them to compute each location dropdown's options under the *other*
+// currently-active filters (see db.get_locations), so if these two ever drifted apart the
+// dropdowns would narrow inconsistently with what the job list itself actually shows.
+function buildFilterParams() {
+  const params = new URLSearchParams();
+  if (state.companyFilter) params.set("company", state.companyFilter);
+  if (state.clearanceLevel) {
+    params.set("clearance_level", state.clearanceLevel);
+  } else if (state.clearanceOnly) {
+    params.set("clearance_only", "true");
+  }
+  if (state.remoteOnly) params.set("remote_only", "true");
+  if (state.includeRemote) params.set("include_remote", "true");
+  if (state.equityOnly) params.set("equity_only", "true");
+  if (state.salaryMin != null) params.set("salary_min", state.salaryMin);
+  if (state.salaryMax != null) params.set("salary_max", state.salaryMax);
+  for (const g of state.gradeFilter) params.append("grades", g);
+  for (const c of state.cityFilter) params.append("cities", c);
+  for (const s of state.stateFilter) params.append("states", s);
+  for (const c of state.countryFilter) params.append("countries", c);
+  return params;
 }
 
 async function loadLocations() {
-  const { cities, states, countries, remote_count } = await fetchJSON("/api/locations");
-  fillMultiSelect("city-filter", cities);
-  fillMultiSelect("state-filter", states);
-  fillMultiSelect("country-filter", countries);
-
-  // Populate custom dropdown UI
-  const cityList = cities.map(c => c.value);
-  const stateList = states.map(s => s.value);
-  const countryList = countries.map(c => c.value);
-  populateLocationDropdowns(cityList, stateList, countryList);
+  const params = buildFilterParams();
+  const { cities, states, countries, remote_count } = await fetchJSON(`/api/locations?${params.toString()}`);
+  populateLocationDropdowns(cities, states, countries);
 
   const remoteLabel = document.getElementById("remote-only-check").closest("label");
   remoteLabel.lastChild.textContent = remote_count > 0 ? ` Remote only (${remote_count})` : " Remote only";
@@ -192,25 +221,10 @@ let loadJobsSeq = 0;
 
 async function loadJobs() {
   const mySeq = ++loadJobsSeq;
-  const params = new URLSearchParams();
-  if (state.companyFilter) params.set("company", state.companyFilter);
-  if (state.clearanceLevel) {
-    params.set("clearance_level", state.clearanceLevel);
-  } else if (state.clearanceOnly) {
-    params.set("clearance_only", "true");
-  }
+  const params = buildFilterParams();
   params.set("active_only", "true");
-  if (state.remoteOnly) params.set("remote_only", "true");
-  if (state.includeRemote) params.set("include_remote", "true");
-  if (state.equityOnly) params.set("equity_only", "true");
-  if (state.salaryMin != null) params.set("salary_min", state.salaryMin);
-  if (state.salaryMax != null) params.set("salary_max", state.salaryMax);
-  for (const g of state.gradeFilter) params.append("grades", g);
   if (state.sortColumn) params.set("sort_by", state.sortColumn);
   if (state.sortDirection) params.set("sort_order", state.sortDirection);
-  for (const c of state.cityFilter) params.append("cities", c);
-  for (const s of state.stateFilter) params.append("states", s);
-  for (const c of state.countryFilter) params.append("countries", c);
 
   const jobs = await fetchJSON(`/api/jobs?${params.toString()}`);
   if (mySeq !== loadJobsSeq) return; // a newer loadJobs() call superseded this one -- discard
@@ -218,6 +232,7 @@ async function loadJobs() {
   state.currentPage = 1;
   renderJobs();
   renderSummary();
+  await loadLocations(); // filters just changed -- re-narrow the location dropdowns to match
 }
 
 async function loadStatus() {
@@ -239,7 +254,7 @@ async function pollUntilJobsAppear() {
   // instead of leaving the table stuck empty until the user happens to touch a filter.
   for (let i = 0; i < 90 && state.jobs.length === 0; i++) {
     await new Promise(r => setTimeout(r, 4000));
-    await Promise.all([loadJobs(), loadCompanies(), loadLocations()]);
+    await Promise.all([loadJobs(), loadCompanies()]); // loadJobs() re-narrows locations itself
     const lastRefresh = await loadStatus();
     if (lastRefresh) break; // full cycle done -- whatever's in state.jobs now is the final answer
   }
@@ -504,42 +519,48 @@ function initLocationDropdowns() {
   });
 }
 
-function populateLocationDropdowns(cities, states, countries) {
-  const createOptions = (items, filterId) => {
-    const optionsDiv = document.getElementById(`${filterId}-options`);
-    optionsDiv.innerHTML = items.map(item => `
-      <label class="multiselect-option">
-        <input type="checkbox" data-value="${item}">
-        <span>${item}</span>
-      </label>
-    `).join("");
+// facets: [{value, count}], narrowed server-side by every *other* active filter (see
+// db.get_locations) -- e.g. selecting State=CA narrows the city facets to CA cities only.
+// selected: the filter's own currently-checked values (state.cityFilter etc).
+function createFacetOptions(facets, filterId, selected) {
+  const optionsDiv = document.getElementById(`${filterId}-options`);
+  const selectedSet = new Set(selected);
 
-    optionsDiv.querySelectorAll("input[type='checkbox']").forEach(cb => {
-      cb.addEventListener("change", () => {
-        const selected = [...optionsDiv.querySelectorAll("input[type='checkbox']:checked")].map(c => c.dataset.value);
+  // Narrowing can drop a value that's still actively selected (e.g. picking State=CA while
+  // City=Reston was already checked) -- keep it in the list instead of silently leaving an
+  // invisible filter applied that the user can no longer see or uncheck (and that would zero
+  // out results with no visible explanation, since city/state/country are AND'd together).
+  const facetValues = new Set(facets.map(f => f.value));
+  const merged = [...facets, ...selected.filter(v => !facetValues.has(v)).map(v => ({ value: v, count: null }))];
 
-        // Update hidden select element
-        const selectEl = document.getElementById(`${filterId}-filter`);
-        [...selectEl.options].forEach(opt => opt.selected = false);
-        selected.forEach(val => {
-          const opt = [...selectEl.options].find(o => o.value === val);
-          if (opt) opt.selected = true;
-        });
+  const selectEl = document.getElementById(`${filterId}-filter`);
+  selectEl.innerHTML = merged.map(f => `<option value="${escapeHtml(f.value)}">${escapeHtml(f.value)}</option>`).join("");
+  [...selectEl.options].forEach(opt => { opt.selected = selectedSet.has(opt.value); });
 
-        // Update button count
-        const toggle = document.querySelector(`.multiselect-toggle[data-filter="${filterId}"]`);
-        const count = toggle.querySelector(".multiselect-count");
-        count.textContent = selected.length > 0 ? selected.length : "";
+  optionsDiv.innerHTML = merged.map(f => `
+    <label class="multiselect-option">
+      <input type="checkbox" data-value="${escapeHtml(f.value)}" ${selectedSet.has(f.value) ? "checked" : ""}>
+      <span>${escapeHtml(f.value)}${f.count != null ? ` (${f.count})` : ""}</span>
+    </label>
+  `).join("");
 
-        // Trigger the change event on the hidden select to trigger filtering
-        selectEl.dispatchEvent(new Event("change"));
-      });
+  const toggle = document.querySelector(`.multiselect-toggle[data-filter="${filterId}"]`);
+  toggle.querySelector(".multiselect-count").textContent = selected.length > 0 ? selected.length : "";
+
+  optionsDiv.querySelectorAll("input[type='checkbox']").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const nowSelected = [...optionsDiv.querySelectorAll("input[type='checkbox']:checked")].map(c => c.dataset.value);
+      [...selectEl.options].forEach(opt => { opt.selected = nowSelected.includes(opt.value); });
+      toggle.querySelector(".multiselect-count").textContent = nowSelected.length > 0 ? nowSelected.length : "";
+      selectEl.dispatchEvent(new Event("change")); // loadJobs() picks this up via the existing change listener
     });
-  };
+  });
+}
 
-  createOptions(cities || [], "city");
-  createOptions(states || [], "state");
-  createOptions(countries || [], "country");
+function populateLocationDropdowns(cities, states, countries) {
+  createFacetOptions(cities || [], "city", state.cityFilter);
+  createFacetOptions(states || [], "state", state.stateFilter);
+  createFacetOptions(countries || [], "country", state.countryFilter);
 }
 
 function populateGradeDropdown() {
@@ -586,6 +607,16 @@ function showAppliedView() {
 
 function wireControls() {
   initLocationDropdowns();
+
+  document.getElementById("match-rationale-close").addEventListener("click", hideMatchRationale);
+  document.getElementById("match-rationale-overlay").addEventListener("click", e => {
+    if (e.target.id === "match-rationale-overlay") hideMatchRationale();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && !document.getElementById("match-rationale-overlay").hidden) {
+      hideMatchRationale();
+    }
+  });
 
   document.getElementById("search-input").addEventListener("input", e => {
     state.search = e.target.value;
@@ -698,7 +729,7 @@ function wireControls() {
     btn.textContent = "Refreshing…";
     await fetchJSON("/api/refresh", { method: "POST" });
     setTimeout(async () => {
-      await Promise.all([loadCompanies(), loadJobs(), loadStatus(), loadLocations()]);
+      await Promise.all([loadCompanies(), loadJobs(), loadStatus()]); // loadJobs() re-narrows locations itself
       btn.disabled = false;
       btn.textContent = "Refresh now";
     }, 15000); // give the background thread time to make headway; full refresh may take longer for 140 companies
@@ -774,7 +805,16 @@ async function runScoreJobs() {
     body: JSON.stringify({ job_ids }),
   });
   if (res.status === 409) {
-    pollScoreJobs(btn); // someone else already kicked one off — just watch it
+    // A run was already in flight, so this click's own job_ids (filtered or not) were never
+    // sent anywhere -- the existing run just keeps going with whatever scope IT started with.
+    // Say so explicitly rather than silently watching it as if this request had taken effect,
+    // which previously made the filtered-only checkbox look broken/ignored.
+    const existing = await fetchJSON("/api/score-jobs/status");
+    const requestedCount = filteredOnly ? job_ids.length : null;
+    const note = (requestedCount != null && existing.total !== requestedCount)
+      ? `Different run already in progress, not your filtered ${requestedCount} — `
+      : "";
+    pollScoreJobs(btn, note);
     return;
   }
   if (res.status === 400) {
@@ -786,14 +826,14 @@ async function runScoreJobs() {
   pollScoreJobs(btn);
 }
 
-function pollScoreJobs(btn) {
+function pollScoreJobs(btn, note = "") {
   const statusLine = document.getElementById("resume-status-line");
   const tick = async () => {
     const status = await fetchJSON("/api/score-jobs/status");
     if (status.running) {
       btn.disabled = true;
       const known = status.total > 0 ? `${status.processed}/${status.total}` : "…";
-      statusLine.textContent = `Scoring… ${known}`;
+      statusLine.textContent = `${note}Scoring… ${known}`;
       setTimeout(tick, 2000);
     } else {
       btn.disabled = false;
@@ -826,7 +866,15 @@ async function runReparseJobs() {
     body: JSON.stringify({ job_ids }),
   });
   if (res.status === 409) {
-    pollReparseJobs(btn); // someone else already kicked one off — just watch it
+    // See runScoreJobs's identical 409 handling for why this can't just silently watch the
+    // existing run: this click's job_ids were never sent anywhere, so a filtered request
+    // sitting behind an already-running unfiltered one would otherwise look ignored/broken.
+    const existing = await fetchJSON("/api/reparse-jobs/status");
+    const requestedCount = filteredOnly ? job_ids.length : null;
+    const note = (requestedCount != null && existing.total !== requestedCount)
+      ? `Different run already in progress, not your filtered ${requestedCount} — `
+      : "";
+    pollReparseJobs(btn, note);
     return;
   }
   if (!res.ok) throw new Error(`/api/reparse-jobs -> ${res.status}`);
@@ -834,14 +882,14 @@ async function runReparseJobs() {
   pollReparseJobs(btn);
 }
 
-function pollReparseJobs(btn) {
+function pollReparseJobs(btn, note = "") {
   const statusLine = document.getElementById("reparse-status-line");
   const tick = async () => {
     const status = await fetchJSON("/api/reparse-jobs/status");
     if (status.running) {
       btn.disabled = true;
       const known = status.total > 0 ? `${status.processed}/${status.total}` : "…";
-      statusLine.textContent = `Re-parsing… ${known}`;
+      statusLine.textContent = `${note}Re-parsing… ${known}`;
       setTimeout(tick, 2000);
     } else {
       btn.disabled = false;
@@ -857,7 +905,7 @@ function pollReparseJobs(btn) {
 (async function init() {
   wireControls();
   populateGradeDropdown();
-  await Promise.all([loadCompanies(), loadJobs(), loadStatus(), loadLocations(), loadResume(),
+  await Promise.all([loadCompanies(), loadJobs(), loadStatus(), loadResume(), // loadJobs() re-narrows locations itself
                      loadAppliedJobs(), loadCandidateCompanies()]);
   if (state.jobs.length === 0) await pollUntilJobsAppear();
 })();

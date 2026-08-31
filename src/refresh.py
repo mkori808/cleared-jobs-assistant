@@ -13,9 +13,9 @@ import httpx
 from . import db, discovery, extractor
 from .scrapers import (
     greenhouse, lever, ashby, smartrecruiters, workday, rippling, careers_widget, generic,
-    bamboohr, epsilon_systems, workable, icims, mckinsey, goliath, deloitte, ey, elderresearch,
-    evansandchambers, lyntris, endgame, teamtailor, pinpoint, adp, taleo, breezy, gem, clearcompany,
-    paylocity,
+    bamboohr, epsilon_systems, workable, icims, mckinsey, goliath, deloitte, ey, hrmdirect,
+    applicantstack, lyntris, endgame, teamtailor, pinpoint, adp, taleo, breezy, gem, clearcompany,
+    paylocity, ultipro, join_com, eightfold, workable_jobs, jibe, isolved,
 )
 from .scrapers._location import parse_location, normalize_state, normalize_country, extract_leaked_state
 
@@ -37,8 +37,8 @@ FETCHERS = {
     "goliath": goliath.fetch_jobs,
     "deloitte": deloitte.fetch_jobs,
     "ey": ey.fetch_jobs,
-    "elderresearch": elderresearch.fetch_jobs,
-    "evansandchambers": evansandchambers.fetch_jobs,
+    "hrmdirect": hrmdirect.fetch_jobs,
+    "applicantstack": applicantstack.fetch_jobs,
     "lyntris": lyntris.fetch_jobs,
     "endgame": endgame.fetch_jobs,
     "teamtailor": teamtailor.fetch_jobs,
@@ -49,6 +49,12 @@ FETCHERS = {
     "gem": gem.fetch_jobs,
     "clearcompany": clearcompany.fetch_jobs,
     "paylocity": paylocity.fetch_jobs,
+    "ultipro": ultipro.fetch_jobs,
+    "join": join_com.fetch_jobs,
+    "eightfold": eightfold.fetch_jobs,
+    "workable_jobs": workable_jobs.fetch_jobs,
+    "jibe": jibe.fetch_jobs,
+    "isolved": isolved.fetch_jobs,
 }
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (clearance-job-tracker/1.0; personal use)"}
